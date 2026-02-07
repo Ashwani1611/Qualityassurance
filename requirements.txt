@@ -1,0 +1,9 @@
+streamlit==1.28.0
+pandas
+geopandas
+shapely
+scikit-learn
+matplotlib
+folium
+streamlit-folium
+pyproj

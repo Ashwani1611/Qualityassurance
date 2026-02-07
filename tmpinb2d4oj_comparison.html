@@ -1,0 +1,74 @@
+
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <title>Method Comparison: tmpinb2d4oj</title>
+            <style>
+                body { font-family: Arial, sans-serif; background: #1a1a2e; color: white; padding: 20px; }
+                .container { max-width: 900px; margin: 0 auto; }
+                h1 { color: #e94560; }
+                table { width: 100%; border-collapse: collapse; margin: 20px 0; }
+                th, td { padding: 12px; text-align: left; border: 1px solid #0f3460; }
+                th { background: #16213e; color: #e94560; }
+                tr:nth-child(even) { background: #16213e; }
+                .win { color: #00ff88; font-weight: bold; }
+                .metric { font-size: 24px; color: #e94560; }
+                .card { background: #16213e; padding: 20px; border-radius: 10px; margin: 10px 0; }
+            </style>
+        </head>
+        <body>
+            <div class="container">
+                <h1>📊 Method Comparison Report</h1>
+                <p>File: <b>tmpinb2d4oj.wkt</b> | Segments: <b>52</b></p>
+                
+                <h2>Performance Summary</h2>
+                <table>
+                    <tr>
+                        <th>Metric</th>
+                        <th>GeoPandas (Geometric)</th>
+                        <th>DBSCAN (ML)</th>
+                        <th>Winner</th>
+                    </tr>
+                    <tr>
+                        <td>Overlaps Detected</td>
+                        <td class="metric">12</td>
+                        <td class="metric">15</td>
+                        <td class="win">DBSCAN</td>
+                    </tr>
+                    <tr>
+                        <td>Execution Time</td>
+                        <td>0.037s</td>
+                        <td>0.065s</td>
+                        <td class="win">GeoPandas</td>
+                    </tr>
+                    <tr>
+                        <td>Method Type</td>
+                        <td>Exact Geometry</td>
+                        <td>Statistical Clustering</td>
+                        <td>-</td>
+                    </tr>
+                    <tr>
+                        <td>Best For</td>
+                        <td>QA Validation</td>
+                        <td>Fuzzy Duplicates</td>
+                        <td>-</td>
+                    </tr>
+                </table>
+                
+                <h2>Detection Agreement</h2>
+                <div class="card">
+                    <p>✅ <b>Detected by Both:</b> 0 overlaps</p>
+                    <p>🔷 <b>GeoPandas Only:</b> 12 overlaps</p>
+                    <p>🟣 <b>DBSCAN Only:</b> 15 overlaps</p>
+                </div>
+                
+                <h2>Recommendation</h2>
+                <div class="card">
+                    <p><b>For Quality Assurance:</b> Use <span class="win">GeoPandas</span> - Mathematically precise, catches true topological errors.</p>
+                    <p><b>For Data Cleaning:</b> Use <span style="color: #9b59b6;">DBSCAN</span> - Finds fuzzy duplicates that may be intentional variants.</p>
+                    <p><b>For Production:</b> Run both and use GeoPandas as ground truth, DBSCAN for flagging review candidates.</p>
+                </div>
+            </div>
+        </body>
+        </html>
+        
