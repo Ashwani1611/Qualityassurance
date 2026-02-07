@@ -424,27 +424,27 @@ class OverlapDetector:
         center_y = (bounds[1] + bounds[3]) / 2
         center_x = (bounds[0] + bounds[2]) / 2
         
-        # Use Simple CRS for local coordinates with dark tiles
+        # Use Simple CRS for local coordinates with light background
         m = folium.Map(location=[center_y, center_x], zoom_start=0, crs="Simple",
                       tiles=None)  # No default tiles
         
-        # Add dark background
-        dark_bg = '''
+        # Add light/white background for better visibility
+        light_bg = '''
         <style>
-            .leaflet-container { background-color: #1a1a2e !important; }
+            .leaflet-container { background-color: #f5f5f5 !important; }
         </style>
         '''
-        m.get_root().html.add_child(folium.Element(dark_bg))
+        m.get_root().html.add_child(folium.Element(light_bg))
         
         # Fit bounds to data
         m.fit_bounds([[bounds[1], bounds[0]], [bounds[3], bounds[2]]])
         
-        # --- Layer 1: ALL segments (light gray on dark bg for contrast) ---
+        # --- Layer 1: ALL segments (dark blue on light bg for contrast) ---
         all_segments = folium.FeatureGroup(name="All Segments")
         for _, row in self.gdf.iterrows():
             coords = [(p[1], p[0]) for p in row.geometry.coords]
             seg_len = row.geometry.length
-            folium.PolyLine(coords, color='#555555', weight=2, opacity=0.5,
+            folium.PolyLine(coords, color='#1a365d', weight=2, opacity=0.7,
                            popup=f"<b>{row['id']}</b><br>Length: {seg_len:.2f}").add_to(all_segments)
         all_segments.add_to(m)
         
@@ -458,16 +458,16 @@ class OverlapDetector:
                     if not seg.empty:
                         coords = [(p[1], p[0]) for p in seg.geometry.iloc[0].coords]
                         seg_len = seg.geometry.iloc[0].length
-                        folium.PolyLine(coords, color='#9b59b6', weight=4, opacity=0.9,
+                        folium.PolyLine(coords, color='#8b5cf6', weight=4, opacity=0.9,
                                        popup=f"<b>{seg_id}</b><br>Length: {seg_len:.2f}").add_to(overlap_pairs)
                         drawn_ids.add(seg_id)
         overlap_pairs.add_to(m)
         
         # --- Layer 3: Overlap regions (bright colors for max contrast) ---
         def get_color(conf):
-            if conf >= 0.9: return '#ff3333'   # Bright red
-            elif conf >= 0.7: return '#ff9933'  # Bright orange
-            else: return '#ffff33'              # Bright yellow
+            if conf >= 0.9: return '#dc2626'   # Red
+            elif conf >= 0.7: return '#ea580c'  # Orange
+            else: return '#ca8a04'              # Yellow/amber (visible on light bg)
         
         overlap_regions = folium.FeatureGroup(name="Overlap Regions")
         for _, row in df_out.iterrows():
@@ -515,22 +515,22 @@ class OverlapDetector:
         # --- Stats Panel (top-right) ---
         stats_html = f'''
         <div style="position: fixed; top: 20px; right: 20px; z-index: 1000;
-                    background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
-                    color: white; padding: 15px 20px; border: 1px solid #0f3460;
-                    border-radius: 10px; font-family: Arial; box-shadow: 0 4px 15px rgba(0,0,0,0.3);
+                    background: white; color: #333;
+                    padding: 15px 20px; border: 1px solid #ccc;
+                    border-radius: 10px; font-family: Arial; box-shadow: 0 2px 8px rgba(0,0,0,0.15);
                     min-width: 200px;">
             <div style="font-size: 14px; font-weight: bold; margin-bottom: 10px; 
-                        border-bottom: 1px solid #0f3460; padding-bottom: 8px;">
+                        border-bottom: 1px solid #ddd; padding-bottom: 8px;">
                 📊 Summary Stats
             </div>
             <div style="font-size: 12px; line-height: 1.8;">
                 <b>Total Segments:</b> {total_segments}<br>
                 <b>Affected Segments:</b> {affected_segments}<br>
-                <hr style="border-color: #0f3460; margin: 8px 0;">
-                <b>Total Overlaps:</b> <span style="font-size: 16px; color: #e94560;">{total_overlaps}</span><br>
-                <span style="color: #ff3333;">● High Confidence:</span> {high_conf}<br>
-                <span style="color: #ff9933;">● Medium:</span> {med_conf}<br>
-                <span style="color: #ffff33;">● Low:</span> {low_conf}<br>
+                <hr style="border-color: #ddd; margin: 8px 0;">
+                <b>Total Overlaps:</b> <span style="font-size: 16px; color: #dc2626;">{total_overlaps}</span><br>
+                <span style="color: #dc2626;">● High Confidence:</span> {high_conf}<br>
+                <span style="color: #ea580c;">● Medium:</span> {med_conf}<br>
+                <span style="color: #ca8a04;">● Low:</span> {low_conf}<br>
             </div>
         </div>
         '''
@@ -539,16 +539,16 @@ class OverlapDetector:
         # --- Legend (bottom-left) ---
         legend_html = '''
         <div style="position: fixed; bottom: 30px; left: 20px; z-index: 1000;
-                    background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
-                    color: white; padding: 12px 15px; border: 1px solid #0f3460;
+                    background: white; color: #333;
+                    padding: 12px 15px; border: 1px solid #ccc;
                     border-radius: 8px; font-family: Arial; font-size: 11px;
-                    box-shadow: 0 4px 15px rgba(0,0,0,0.3);">
+                    box-shadow: 0 2px 8px rgba(0,0,0,0.15);">
             <b style="font-size: 12px;">Legend</b><br>
-            <span style="color: #555555;">━━</span> All Segments<br>
-            <span style="color: #9b59b6;">━━</span> Overlapping Pairs<br>
-            <span style="color: #ff3333;">━━</span> High Confidence (≥90%)<br>
-            <span style="color: #ff9933;">━━</span> Medium (70-90%)<br>
-            <span style="color: #ffff33;">━━</span> Low (<70%)<br>
+            <span style="color: #1a365d;">━━</span> All Segments<br>
+            <span style="color: #8b5cf6;">━━</span> Overlapping Pairs<br>
+            <span style="color: #dc2626;">━━</span> High Confidence (≥90%)<br>
+            <span style="color: #ea580c;">━━</span> Medium (70-90%)<br>
+            <span style="color: #ca8a04;">━━</span> Low (<70%)<br>
         </div>
         '''
         m.get_root().html.add_child(folium.Element(legend_html))
