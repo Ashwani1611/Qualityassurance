@@ -410,10 +410,11 @@ class OverlapDetector:
         # 3. HTML Report
         self._create_report(df_out)
         
-        # 4. Feedback Template
-        df_out['is_overlap'] = ''
-        df_out['comments'] = ''
-        df_out[['id1', 'id2', 'type']].to_csv(f"{self.basename}_feedback.csv", index=False)
+        # 4. Feedback Template - includes is_overlap column for user to fill
+        feedback_df = df_out[['id1', 'id2', 'type', 'confidence']].copy()
+        feedback_df['is_overlap'] = ''  # User fills: TRUE or FALSE
+        feedback_df['comments'] = ''    # Optional user comments
+        feedback_df.to_csv(f"{self.basename}_feedback.csv", index=False)
         print(f"✓ Created Feedback Template: {self.basename}_feedback.csv")
 
     def _create_map(self, df_out):

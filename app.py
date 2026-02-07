@@ -331,37 +331,91 @@ if wkt_file_path:
             st.info("💡 Select 'Both (Comparison)' mode to see comparison")
     
     with tabs[3]:  # Feedback
-        st.header("Feedback Training")
+        st.header("📝 Feedback Training")
         
         st.markdown("""
-        **How it works:**
-        1. Download the feedback CSV below
-        2. Mark each row's `is_overlap` as `TRUE` or `FALSE`
-        3. Upload the corrected file here to train the model
+        ### 🔄 Fine-Tuning Procedure
+        
+        The system learns from your corrections to improve future detections.
+        
+        ---
+        
+        **Step 1: Download Feedback Template**
+        - Click the download button below to get a CSV with detected overlaps
+        - The file contains columns: `id1`, `id2`, `type`, `confidence`, `is_overlap`, `comments`
+        
+        **Step 2: Review Each Detection**
+        - Open the CSV in Excel or Google Sheets
+        - For each row, fill the `is_overlap` column:
+          - `TRUE` → This IS a real overlap (correct detection)
+          - `FALSE` → This is NOT an overlap (false positive)
+        - Optionally add notes in the `comments` column
+        
+        **Step 3: Upload Corrected File**
+        - Save your CSV and upload it below
+        - Click "Train from Feedback" to improve the model
+        
+        ---
+        
+        **📊 How Training Works:**
+        
+        | Your Label | System Action |
+        |------------|---------------|
+        | `TRUE` | Reinforces detection patterns |
+        | `FALSE` | Adjusts thresholds to avoid similar false positives |
+        
+        The system analyzes the geometric features (angle, distance, overlap ratio) 
+        of your corrections and learns optimal decision boundaries.
         """)
         
-        if st.session_state.detector:
-            detector = st.session_state.detector
-            feedback_file = f"{detector.basename}_feedback.csv"
-            
-            if os.path.exists(feedback_file):
-                st.download_button(
-                    "📥 Download Feedback Template",
-                    open(feedback_file, 'r').read(),
-                    file_name=feedback_file,
-                    mime='text/csv'
-                )
+        st.divider()
         
-        uploaded_feedback = st.file_uploader("Upload Corrected Feedback CSV", type=['csv'])
+        col1, col2 = st.columns(2)
         
-        if uploaded_feedback:
-            with tempfile.NamedTemporaryFile(mode='w', suffix='.csv', delete=False) as f:
-                f.write(uploaded_feedback.getvalue().decode())
-                feedback_path = f.name
+        with col1:
+            st.subheader("📥 Step 1: Download Template")
+            if st.session_state.detector:
+                detector = st.session_state.detector
+                feedback_file = f"{detector.basename}_feedback.csv"
+                
+                if os.path.exists(feedback_file):
+                    st.download_button(
+                        "⬇️ Download Feedback CSV",
+                        open(feedback_file, 'r').read(),
+                        file_name=feedback_file,
+                        mime='text/csv',
+                        use_container_width=True
+                    )
+                    st.caption("Contains: id1, id2, type, confidence, is_overlap, comments")
+                else:
+                    st.warning("Run detection first to generate the feedback template")
+            else:
+                st.info("Run detection first to generate feedback template")
+        
+        with col2:
+            st.subheader("📤 Step 3: Upload Corrected File")
+            uploaded_feedback = st.file_uploader("Upload Corrected Feedback CSV", type=['csv'])
             
-            if st.button("🎓 Train from Feedback"):
-                detector.train_from_feedback(feedback_path)
-                st.success("✅ Training complete! Check console for metrics.")
+            if uploaded_feedback:
+                # Preview uploaded file
+                feedback_df = pd.read_csv(uploaded_feedback)
+                st.caption(f"Uploaded: {len(feedback_df)} rows")
+                
+                # Check for is_overlap column filled
+                filled = feedback_df['is_overlap'].notna() & (feedback_df['is_overlap'] != '')
+                st.caption(f"Labeled: {filled.sum()} / {len(feedback_df)}")
+                
+                # Reset file pointer for saving
+                uploaded_feedback.seek(0)
+                
+                with tempfile.NamedTemporaryFile(mode='w', suffix='.csv', delete=False) as f:
+                    f.write(uploaded_feedback.getvalue().decode())
+                    feedback_path = f.name
+                
+                if st.button("🎓 Train from Feedback", type="primary", use_container_width=True):
+                    with st.spinner("Training model from your feedback..."):
+                        detector.train_from_feedback(feedback_path)
+                    st.success("✅ Training complete! Model updated with your corrections.")
     
     with tabs[4]:  # Export
         st.header("Export Results")
