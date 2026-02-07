@@ -148,6 +148,66 @@ with st.sidebar:
         "Detection method:",
         ["GeoPandas Only", "DBSCAN Only", "Both (Comparison)"]
     )
+    
+    st.divider()
+    
+    # Buffer Tolerance Settings
+    st.header("🔧 Tolerance Settings")
+    
+    with st.expander("Configure Detection Thresholds", expanded=False):
+        st.markdown("**Default values shown. Adjust for your data:**")
+        
+        st.subheader("Geometric Detection")
+        buffer_size = st.slider(
+            "Buffer Size (coordinate units)",
+            min_value=0.1, max_value=10.0, value=1.0, step=0.1,
+            help="Spatial buffer for detecting near-overlaps. Default: 1.0"
+        )
+        
+        st.subheader("ML Detection (DBSCAN)")
+        angle_tolerance = st.slider(
+            "Angle Tolerance (degrees)",
+            min_value=1, max_value=45, value=15, step=1,
+            help="Max angle difference to consider as potential duplicate. Default: 15°"
+        )
+        
+        distance_tolerance = st.slider(
+            "Perpendicular Distance (units)",
+            min_value=0.5, max_value=20.0, value=5.0, step=0.5,
+            help="Max perpendicular offset between centroids. Default: 5.0"
+        )
+        
+        overlap_threshold = st.slider(
+            "Overlap Ratio Threshold",
+            min_value=0.1, max_value=1.0, value=0.3, step=0.05,
+            help="Min buffer intersection ratio to flag as overlap. Default: 0.3 (30%)"
+        )
+        
+        st.subheader("DBSCAN Clustering")
+        dbscan_eps = st.slider(
+            "DBSCAN eps (feature space)",
+            min_value=0.1, max_value=2.0, value=0.5, step=0.1,
+            help="Clustering distance threshold. Default: 0.5"
+        )
+        
+        dbscan_min_samples = st.slider(
+            "DBSCAN min_samples",
+            min_value=1, max_value=10, value=2, step=1,
+            help="Minimum points to form a cluster. Default: 2"
+        )
+        
+        st.markdown("---")
+        st.info("💡 **Tip**: Lower thresholds = more detections (higher recall, more false positives)")
+    
+    # Store settings in session state
+    st.session_state.tolerance_settings = {
+        'buffer_size': buffer_size if 'buffer_size' in dir() else 1.0,
+        'angle_tolerance': angle_tolerance if 'angle_tolerance' in dir() else 15,
+        'distance_tolerance': distance_tolerance if 'distance_tolerance' in dir() else 5.0,
+        'overlap_threshold': overlap_threshold if 'overlap_threshold' in dir() else 0.3,
+        'dbscan_eps': dbscan_eps if 'dbscan_eps' in dir() else 0.5,
+        'dbscan_min_samples': dbscan_min_samples if 'dbscan_min_samples' in dir() else 2
+    }
 
 # Main area
 if wkt_file_path:
