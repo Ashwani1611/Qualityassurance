@@ -151,17 +151,69 @@ with st.sidebar:
     
     st.divider()
     
+    # Coordinate System Selection
+    st.header("🌐 Coordinate System")
+    
+    coord_system = st.radio(
+        "Select your data's coordinate format:",
+        ["Projected (meters)", "Geographic (lat/lon)", "Auto-detect"],
+        index=0,  # Default: Projected
+        help="Choose the coordinate system matching your WKT data"
+    )
+    
+    # Info display based on selection
+    if coord_system == "Projected (meters)":
+        st.info("""
+        **📐 Projected Coordinates (Default)**
+        - Values like: `LINESTRING(7071 8585, 7074 8588)`
+        - Units: meters, feet, or local grid units
+        - Buffer size: 1.0 = ~1 meter tolerance
+        - Best for: UTM, State Plane, local survey grids
+        """)
+        default_buffer = 1.0
+        buffer_max = 10.0
+        buffer_step = 0.1
+        
+    elif coord_system == "Geographic (lat/lon)":
+        st.info("""
+        **🌍 Geographic Coordinates (WGS84)**
+        - Values like: `LINESTRING(0.12 52.21, 0.13 52.22)`
+        - Units: decimal degrees
+        - Buffer size: 0.00005 ≈ ~5 meters at mid-latitudes
+        - Best for: GPS data, OpenStreetMap, Google Maps exports
+        """)
+        default_buffer = 0.00005
+        buffer_max = 0.001
+        buffer_step = 0.00001
+        
+    else:  # Auto-detect
+        st.warning("""
+        **🔍 Auto-detect Mode**
+        - System will analyze coordinate ranges
+        - Coordinates < 180: likely Geographic (degrees)
+        - Coordinates > 180: likely Projected (meters)
+        - ⚠️ May not work for unusual local grids
+        """)
+        default_buffer = 1.0  # Will be overridden
+        buffer_max = 10.0
+        buffer_step = 0.1
+    
+    # Store selection in session state
+    st.session_state.coord_system = coord_system
+    
+    st.divider()
+    
     # Buffer Tolerance Settings
     st.header("🔧 Tolerance Settings")
     
     with st.expander("Configure Detection Thresholds", expanded=False):
-        st.markdown("**Default values shown. Adjust for your data:**")
+        st.markdown("**Adjust thresholds for your coordinate system:**")
         
         st.subheader("Geometric Detection")
         buffer_size = st.slider(
             "Buffer Size (coordinate units)",
-            min_value=0.1, max_value=10.0, value=1.0, step=0.1,
-            help="Spatial buffer for detecting near-overlaps. Default: 1.0"
+            min_value=buffer_step, max_value=buffer_max, value=default_buffer, step=buffer_step,
+            help=f"Spatial buffer for near-overlaps. Default: {default_buffer}"
         )
         
         st.subheader("ML Detection (DBSCAN)")
@@ -221,8 +273,27 @@ if wkt_file_path:
         with col1:
             if st.button("🚀 Run Detection", type="primary", use_container_width=True):
                 with st.spinner("Loading data..."):
-                    detector = OverlapDetector(wkt_file_path)
+                    # Map UI selection to code parameter
+                    coord_map = {
+                        "Projected (meters)": "projected",
+                        "Geographic (lat/lon)": "geographic",
+                        "Auto-detect": "auto"
+                    }
+                    coord_param = coord_map.get(st.session_state.get('coord_system', 'Projected (meters)'), 'projected')
+                    
+                    # For auto-detect, pass None so detector uses auto-detected value
+                    # For manual selection, use the slider value
+                    actual_buffer = None if coord_param == "auto" else buffer_size
+                    
+                    detector = OverlapDetector(
+                        wkt_file_path, 
+                        buffer_size=actual_buffer,
+                        coord_system=coord_param
+                    )
                     st.session_state.detector = detector
+                    
+                    # Show detected parameters
+                    st.info(f"📍 Using buffer size: **{detector.buffer_size}**")
                 
                 if run_method in ["GeoPandas Only", "Both (Comparison)"]:
                     with st.spinner("Running GeoPandas detection..."):

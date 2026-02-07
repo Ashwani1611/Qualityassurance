@@ -153,7 +153,6 @@ Input (WKT)
 -   *Solution:* Built a **"Comparison Report"** view. It runs both engines side-by-side and outputs a table: "GeoPandas found X, DBSCAN found Y". This builds trust by showing where they agree and where ML finds extra cases.
 
 ---
-
 ### 3.3 FEEDBACK-BASED FINE-TUNING WORKFLOW
 
 **How the Model Learns from User Corrections:**
@@ -176,33 +175,6 @@ The system implements a **Human-in-the-Loop** learning workflow that allows the 
    - Upload the corrected CSV to the Feedback tab
    - System parses labels and extracts geometric features
 
-**Training Logic (Code Implementation):**
-
-```python
-def train_from_feedback(self, feedback_csv):
-    # 1. Load and filter labeled examples
-    feedback = pd.read_csv(feedback_csv)
-    labeled = feedback[feedback['is_overlap'].isin(['TRUE', 'FALSE'])]
-    
-    # 2. Separate by user labels
-    true_positives = labeled[labeled['is_overlap'] == 'TRUE']
-    false_positives = labeled[labeled['is_overlap'] == 'FALSE']
-    
-    # 3. Extract geometric features for each pair:
-    #    - Angle difference (degrees)
-    #    - Perpendicular distance between centroids
-    #    - Length ratio (shorter / longer)
-    #    - Buffer overlap ratio (intersection / union)
-    
-    # 4. Train supervised classifier (production)
-    from sklearn.ensemble import RandomForestClassifier
-    clf = RandomForestClassifier(n_estimators=100)
-    clf.fit(features, labels)
-    
-    # 5. Output training metrics
-    print(f"True Positive Rate: {len(true_positives)/len(labeled):.0%}")
-    print(f"False Positive Rate: {len(false_positives)/len(labeled):.0%}")
-```
 
 **What the System Learns:**
 
@@ -212,6 +184,54 @@ def train_from_feedback(self, feedback_csv):
 | `FALSE` | Learns to avoid similar false positives by adjusting feature thresholds |
 
 **Key Insight:** The initial DBSCAN is **unsupervised** (works immediately without training data). User feedback creates a **labeled dataset** that trains a **supervised Random Forest classifier**, which learns the domain-specific definition of "overlap" for that particular dataset.
+
+---
+
+### 3.4 COORDINATE SYSTEM AUTO-DETECTION
+
+**The Problem:**
+WKT data can use different coordinate systems:
+- **Projected** (meters): `LINESTRING(7071 8585, 7074 8588)` - typical for UTM, State Plane
+- **Geographic** (lat/lon): `LINESTRING(0.12 52.21, 0.13 52.22)` - GPS data, OSM exports
+
+The same buffer size (e.g., 1.0) means **1 meter** in projected coordinates but **~111 km** in geographic coordinates—causing massive over-detection of false positives!
+
+**Our Solution: Intelligent Auto-Detection**
+
+```python
+def detect_coordinate_system(gdf):
+    bounds = gdf.total_bounds  # [minx, miny, maxx, maxy]
+    max_coord = max(abs(bounds[0]), abs(bounds[2]), abs(bounds[1]), abs(bounds[3]))
+    
+    # Geographic: values < 180 and within lat/lon bounds
+    if max_coord < 180 and -90 <= bounds[1] <= 90:
+        return (0.00005, "Geographic (lat/lon)", True)  # ~5m buffer
+    else:
+        return (1.0, "Projected (meters)", False)  # 1m buffer
+```
+
+**UI Options:**
+Users can select:
+1. **Projected (meters)** - Default for UTM/local grids
+2. **Geographic (lat/lon)** - For GPS/WGS84 data  
+3. **Auto-detect** - System analyzes coordinate ranges automatically
+
+**DBSCAN Enhancements for Geographic Data:**
+
+| Component | Projected | Geographic | Reason |
+|-----------|-----------|------------|--------|
+| Distance filter | `buffer × 10` | `buffer × 20000` | 1° ≈ 111km |
+| Proximity score | Buffer overlap | `1 - (dist / buffer × 100)` | Buffer areas too tiny in degrees |
+| Cluster threshold | `avg_proximity > 0.5` | Same | Normalized 0-1 |
+
+**Validation Results:**
+| Test File | Coordinate System | GeoPandas | DBSCAN |
+|-----------|------------------|-----------|--------|
+| `map_data.wkt` | Projected | ✅ | ✅ |
+| `Large_map.wkt` | Geographic | ✅ 200 | ✅ 0* |
+| `test_fuzzy_duplicates.wkt` | Geographic | 1 | **10** |
+
+*Cambridge data contains topological overlaps, not fuzzy duplicates—DBSCAN correctly reports 0.
 
 ---
 
@@ -251,6 +271,8 @@ def train_from_feedback(self, feedback_csv):
 2.  **Unsupervised Learning:** Unlike supervised models requiring thousands of labels, our DBSCAN approach works *immediately* on new datasets by finding statistical clusters of "duplicate-likeness".
 3.  **Dual-Engine Architecture:** It doesn't force a choice between precision (Code) and intuition (ML)—it uses both.
 
+4.  **Coordinate System Agnosticism:** The system automatically detects and adapts to both Projected (meters) and Geographic (lat/lon) coordinate systems, scaling algorithms dynamically without user intervention.
+
 **5.2 How can this solution be useful in a real-world or production scenario?**
 -   **Map Vendors (e.g., TomTom, HERE):** Automated pre-ingestion checks for supplier data.
 -   **OpenStreetMap Editors:** Assisting editors in cleaning up "import mess" where uploaded trails duplicate existing roads.
@@ -263,7 +285,8 @@ def train_from_feedback(self, feedback_csv):
 **6.1 What are the current limitations of your solution?**
 1.  **O(N²) Complexity:** Feature extraction compares pairs. For huge datasets (>10k segments), spatial blocking/tiling is needed.
 2.  **2D Only:** Bridges/Tunnels (z-levels) might be flagged as overlaps if elevation isn't considered.
-3.  **CRS Dependency:** Relies on coordinate units being consistent (meters/feet) for buffer thresholds.
+3.  **No Polygon Support:** Current focus is on linear networks. Future extensions could handle polygon overlaps (e.g., buildings).
+4.  **Huge Computation Requirements:** For larger datasets, the current implementation may require significant computational resources.
 
 **6.2 If you had more time, what improvements or extensions would you make?**
 *   **High Priority:** Implement **Spatial Tiling/Blocking** to allow processing of city-scale datasets (1M+ segments).

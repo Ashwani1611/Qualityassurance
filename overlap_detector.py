@@ -30,15 +30,52 @@ from sklearn.cluster import DBSCAN
 from sklearn.preprocessing import StandardScaler
 import folium
 
-# Configuration
-BUFFER_SIZE = 1.0  # For coordinate systems like WKT (approx 1 meter equivalent)
+# Default Configuration
+DEFAULT_BUFFER_SIZE = 1.0  # For projected coordinate systems (meters)
+
+
+def detect_coordinate_system(gdf):
+    """
+    Auto-detect if coordinates are lat/lon (degrees) or projected (meters).
+    
+    Returns:
+        tuple: (buffer_size, system_name, is_geographic)
+    """
+    bounds = gdf.total_bounds  # [minx, miny, maxx, maxy]
+    max_coord = max(abs(bounds[0]), abs(bounds[2]), abs(bounds[1]), abs(bounds[3]))
+    
+    # Lat/Lon: typically -180 to 180 (x) and -90 to 90 (y)
+    # Check if within geographic bounds
+    if max_coord < 180 and -90 <= bounds[1] <= 90 and -90 <= bounds[3] <= 90:
+        # Likely lat/lon (degrees) - use ~5m buffer at mid-latitudes
+        return (0.00005, "Geographic (lat/lon)", True)
+    else:
+        # Likely projected (meters)
+        return (1.0, "Projected (meters)", False)
+
 
 class OverlapDetector:
-    def __init__(self, wkt_file):
+    def __init__(self, wkt_file, buffer_size=None, coord_system="projected"):
         self.wkt_file = wkt_file
         self.basename = os.path.splitext(os.path.basename(wkt_file))[0]
         self.gdf = self._load_data()
         self.overlaps = []
+        
+        # Handle coordinate system and buffer size
+        self.is_geographic = False
+        if coord_system == "auto":
+            detected_buffer, system_name, is_geo = detect_coordinate_system(self.gdf)
+            self.buffer_size = buffer_size if buffer_size else detected_buffer
+            self.is_geographic = is_geo
+            print(f"📍 Auto-detected: {system_name} → Buffer: {self.buffer_size}")
+        elif coord_system == "geographic":
+            self.buffer_size = buffer_size if buffer_size else 0.00005
+            self.is_geographic = True
+            print(f"📍 Geographic mode → Buffer: {self.buffer_size}")
+        else:  # projected (default)
+            self.buffer_size = buffer_size if buffer_size else DEFAULT_BUFFER_SIZE
+            self.is_geographic = False
+            print(f"📍 Projected mode → Buffer: {self.buffer_size}")
 
     def _load_data(self):
         """Robust WKT loader that handles multiline strings"""
@@ -77,7 +114,7 @@ class OverlapDetector:
         start = time.time()
         
         # Buffer to catch nearby/touching lines
-        self.gdf['buffer'] = self.gdf.geometry.buffer(BUFFER_SIZE)
+        self.gdf['buffer'] = self.gdf.geometry.buffer(self.buffer_size)
         gdf_buffer = self.gdf.set_geometry('buffer')
         
         joined = gpd.sjoin(gdf_buffer, gdf_buffer, how='inner', predicate='intersects')
@@ -116,7 +153,7 @@ class OverlapDetector:
                     p_end = g1.project(Point(g2.coords[-1]))
                     perp_dist = g1.distance(Point(g2.coords[0]))
                     
-                    if ((0 < p_start < g1.length) or (0 < p_end < g1.length)) and perp_dist < BUFFER_SIZE:
+                    if ((0 < p_start < g1.length) or (0 < p_end < g1.length)) and perp_dist < self.buffer_size:
                          overlap_len = abs(p_end - p_start)
                          ratio = max(overlap_len/g1.length, overlap_len/g2.length)
                          if ratio > 0.05:
@@ -135,7 +172,7 @@ class OverlapDetector:
                 
                 if final_geom.is_empty:
                      # Fallback if intersection failed but we detected overlap
-                     final_geom = g1.intersection(g2.buffer(BUFFER_SIZE))
+                     final_geom = g1.intersection(g2.buffer(self.buffer_size))
                 
                 self.overlaps.append({
                     'id1': self.gdf.loc[idx1]['id'],
@@ -171,7 +208,9 @@ class OverlapDetector:
                 g2 = self.gdf.iloc[j].geometry
                 
                 # Skip if too far apart
-                if g1.distance(g2) > BUFFER_SIZE * 10:
+                # For geographic coords, 1 degree ≈ 111km, so scale up the multiplier
+                distance_multiplier = 20000 if self.is_geographic else 10
+                if g1.distance(g2) > self.buffer_size * distance_multiplier:
                     continue
                 
                 # Feature extraction
@@ -189,16 +228,20 @@ class OverlapDetector:
                     if angle_diff > math.pi: angle_diff = 2*math.pi - angle_diff
                     
                     # Distance between centroids
-                    dist = g1.centroid.distance(g2.centroid)
+                    centroid_dist = g1.centroid.distance(g2.centroid)
                     
                     # Length ratio
                     len_ratio = min(g1.length, g2.length) / max(g1.length, g2.length)
                     
-                    # Overlap ratio (via buffer intersection)
-                    inter = g1.buffer(BUFFER_SIZE).intersection(g2.buffer(BUFFER_SIZE))
-                    overlap_ratio = inter.area / (g1.buffer(BUFFER_SIZE).area + 0.001)
+                    # Proximity score (works for both projected and geographic)
+                    # Minimum distance between the geometries
+                    min_dist = g1.distance(g2)
                     
-                    features.append([angle_diff, dist, len_ratio, overlap_ratio])
+                    # For geographic: normalize by buffer_size to get comparable values
+                    # proximity_score: 1.0 = touching/overlapping, 0.0 = far apart
+                    proximity_score = max(0, 1.0 - (min_dist / (self.buffer_size * 100)))
+                    
+                    features.append([angle_diff, centroid_dist, len_ratio, proximity_score])
                     pair_indices.append((i, j))
                 except:
                     continue
@@ -213,16 +256,17 @@ class OverlapDetector:
         X = StandardScaler().fit_transform(features)
         db = DBSCAN(eps=0.5, min_samples=2).fit(X)
         
-        # Find "overlap-like" cluster (low angle diff, high overlap ratio)
+        # Find "overlap-like" cluster (low angle diff, high proximity score)
         for label in set(db.labels_):
             if label == -1: continue
             cluster_mask = db.labels_ == label
             cluster_features = [features[k] for k in range(len(features)) if cluster_mask[k]]
             avg_angle = sum(f[0] for f in cluster_features) / len(cluster_features)
-            avg_overlap = sum(f[3] for f in cluster_features) / len(cluster_features)
+            avg_proximity = sum(f[3] for f in cluster_features) / len(cluster_features)
             
-            # Overlap-like: low angle, high overlap
-            if avg_angle < 0.3 and avg_overlap > 0.1:
+            # Overlap-like: low angle (< 17 degrees) and high proximity (> 0.5)
+            # proximity_score is already normalized 0-1, so threshold is consistent
+            if avg_angle < 0.3 and avg_proximity > 0.5:
                 for k in range(len(features)):
                     if cluster_mask[k]:
                         i, j = pair_indices[k]
@@ -232,7 +276,7 @@ class OverlapDetector:
                             'type': 'ML Detected',
                             'confidence': 0.7 + 0.3 * features[k][3],  # Based on overlap ratio
                             'geometry': self.gdf.iloc[i].geometry.intersection(
-                                self.gdf.iloc[j].geometry.buffer(BUFFER_SIZE)),
+                                self.gdf.iloc[j].geometry.buffer(self.buffer_size)),
                             'method': 'DBSCAN'
                         })
         
